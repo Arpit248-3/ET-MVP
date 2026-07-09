@@ -29,6 +29,8 @@ import DataSources from './pages/dashboard/DataSources.jsx';
 import HelpCenter from './pages/dashboard/HelpCenter.jsx';
 import Profile from './pages/dashboard/Profile.jsx';
 import CrisisMode from './pages/dashboard/CrisisMode.jsx';
+import DemoMode from './pages/dashboard/DemoMode.jsx';
+import ThresholdsAlerts from './pages/dashboard/ThresholdsAlerts.jsx';
 
 export default function App() {
   React.useEffect(() => {
@@ -69,6 +71,8 @@ export default function App() {
           <Route path="/help" element={<HelpCenter />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/crisis-mode" element={<CrisisMode />} />
+          <Route path="/demo-mode" element={<DemoMode />} />
+          <Route path="/settings/thresholds-alerts" element={<ThresholdsAlerts />} />
           <Route path="*" element={<Navigate to="/command-center" replace />} />
         </Routes>
       </BrowserRouter>

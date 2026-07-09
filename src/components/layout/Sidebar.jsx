@@ -5,7 +5,7 @@ import {
   Factory, Database, Shield, Target, FileText, Bell, BookOpen,
   ClipboardList, Users, Settings, MessageSquare, HelpCircle, Clock,
   Users2, Layers, Brain, User, ChevronDown, ChevronRight, Activity,
-  Globe, Command, LogOut, Home, ChevronsLeft, ChevronsRight, Zap,
+  Globe, Command, LogOut, Home, ChevronsLeft, ChevronsRight, Zap, PlayCircle,
 } from 'lucide-react';
 import Logo from '../ui/Logo.jsx';
 
@@ -46,6 +46,7 @@ const navSections = [
       { path: '/reports', label: 'Reports Library', icon: BookOpen },
       { path: '/audit-logs', label: 'Audit Logs', icon: ClipboardList },
       { path: '/user-management', label: 'User Management', icon: Users },
+      { path: '/settings/thresholds-alerts', label: 'Thresholds & Alerts', icon: AlertTriangle },
       { path: '/settings', label: 'Settings', icon: Settings },
     ]
   },
@@ -57,6 +58,7 @@ const navSections = [
       { path: '/data-sources', label: 'Data Sources', icon: Layers },
       { path: '/help', label: 'Help Center', icon: HelpCircle },
       { path: '/profile', label: 'My Profile', icon: User },
+      { path: '/demo-mode', label: 'Demo Mode', icon: PlayCircle },
     ]
   },
 ];
