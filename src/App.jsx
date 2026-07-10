@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ToastProvider } from './components/ui/Toast.jsx';
+import { ScenarioProvider } from './context/ScenarioContext.jsx';
 import Hero from './pages/public/Hero.jsx';
 import Login from './pages/public/Login.jsx';
 import Register from './pages/public/Register.jsx';
@@ -41,6 +42,7 @@ export default function App() {
   return (
     <ToastProvider>
       <BrowserRouter>
+        <ScenarioProvider>
         <Routes>
           <Route path="/" element={<Navigate to="/command-center" replace />} />
           <Route path="/home" element={<Navigate to="/command-center" replace />} />
@@ -75,6 +77,7 @@ export default function App() {
           <Route path="/settings/thresholds-alerts" element={<ThresholdsAlerts />} />
           <Route path="*" element={<Navigate to="/command-center" replace />} />
         </Routes>
+        </ScenarioProvider>
       </BrowserRouter>
     </ToastProvider>
   );

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Bell, Save, RotateCcw, Download, ToggleLeft, ToggleRight, Activity, AlertTriangle, CheckCircle, MessageSquare, Mail, Phone, Globe, Link, Radio } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Bell, Save, RotateCcw, Download, ToggleLeft, ToggleRight, Activity, AlertTriangle, CheckCircle, MessageSquare, Mail, Phone, Globe, Link, Radio, Loader, WifiOff } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import DashboardLayout from '../../components/layout/DashboardLayout.jsx';
 import GlassCard from '../../components/ui/GlassCard.jsx';
@@ -7,6 +7,9 @@ import PageHeader from '../../components/ui/PageHeader.jsx';
 import MetricCard from '../../components/ui/MetricCard.jsx';
 import StatusBadge from '../../components/ui/StatusBadge.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
+import { useScenario } from '../../context/ScenarioContext.jsx';
+import useApi from '../../hooks/useApi.js';
+import { fetchThresholds, updateThresholds } from '../../services/api.js';
 
 function Toggle({ value, onChange }) {
   return (
@@ -70,18 +73,86 @@ const channels = [
   { key: 'webhook', label: 'API Webhook', icon: Link, color: '#00e5ff' },
 ];
 
+const defaultThresholds = { geoPolitical: 80, maritime: 78, crudePct: 15, insurance: 25, supplyGap: 9, sprDays: 7 };
+
 export default function ThresholdsAlerts() {
   const { addToast } = useToast();
-  const [thresholds, setThresholds] = useState({ geoPolitical: 80, maritime: 78, crudePct: 15, insurance: 25, supplyGap: 9, sprDays: 7 });
+  const { backendOnline } = useScenario();
+  
+  const [thresholds, setThresholds] = useState(defaultThresholds);
   const [channelStates, setChannelStates] = useState({ email: true, sms: true, whatsapp: false, dashboard: true, gateway: true, slack: false, webhook: false });
   const [sensitivity, setSensitivity] = useState('High');
   const [quietHours, setQuietHours] = useState(false);
   const [autoEscalate, setAutoEscalate] = useState(true);
   const [emergencyOverride, setEmergencyOverride] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => addToast('Alert policy updated successfully.', 'success');
+  // Fetch thresholds from live backend
+  const { data: rawData, loading: loadingThresholds, error: fetchError, refetch } = useApi(fetchThresholds, {
+    fallback: null,
+  });
+
+  const mapBackendToLocal = (b) => {
+    if (!b?.thresholds) return defaultThresholds;
+    const t = b.thresholds;
+    return {
+      geoPolitical: t.risk?.critical_threshold ?? 80,
+      maritime: t.procurement?.max_route_risk_score ?? 78,
+      crudePct: Math.round(t.economic?.fuel_price_alert_inr ?? 15),
+      insurance: t.procurement?.max_single_supplier_pct ?? 25,
+      supplyGap: t.spr?.target_coverage_days ?? 9,
+      sprDays: t.spr?.minimum_coverage_days ?? 7,
+    };
+  };
+
+  useEffect(() => {
+    if (rawData) {
+      setThresholds(mapBackendToLocal(rawData));
+    }
+  }, [rawData]);
+
+  const mapLocalToBackend = (l) => {
+    return {
+      risk: {
+        critical_threshold: l.geoPolitical,
+      },
+      procurement: {
+        max_route_risk_score: l.maritime,
+        max_single_supplier_pct: l.insurance,
+      },
+      economic: {
+        fuel_price_alert_inr: l.crudePct,
+      },
+      spr: {
+        target_coverage_days: l.supplyGap,
+        minimum_coverage_days: l.sprDays,
+      }
+    };
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      if (backendOnline) {
+        await updateThresholds({
+          thresholds: mapLocalToBackend(thresholds),
+          updated_by: 'Commander Arjun Mehta',
+        });
+        addToast('Alert thresholds updated successfully on the backend.', 'success');
+        refetch();
+      } else {
+        addToast('Backend offline — policy saved locally in window state.', 'success');
+      }
+    } catch (err) {
+      console.error(err);
+      addToast('Failed to update alert policy on the server.', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleReset = () => {
-    setThresholds({ geoPolitical: 80, maritime: 78, crudePct: 15, insurance: 25, supplyGap: 9, sprDays: 7 });
+    setThresholds(defaultThresholds);
     addToast('Thresholds reset to defaults.', 'info');
   };
 
@@ -92,17 +163,32 @@ export default function ThresholdsAlerts() {
       <PageHeader
         title="Thresholds & Alerts"
         subtitle="Configure risk triggers, escalation rules, and notification channels for national energy resilience monitoring."
-        badge={{ label: 'POLICY ACTIVE', color: '#22c55e' }}
+        badge={{ label: backendOnline ? 'POLICY SYNCED' : 'DEMO MODE', color: backendOnline ? '#22c55e' : '#f59e0b' }}
         actions={
           <>
             <button className="btn btn-ghost btn-sm" onClick={() => addToast('Policy exported as JSON', 'info')}><Download size={12} /> Export Policy</button>
-            <button className="btn btn-secondary btn-sm" onClick={handleReset}><RotateCcw size={12} /> Reset Defaults</button>
-            <button className="btn btn-primary btn-sm" onClick={handleSave}><Save size={12} /> Save Changes</button>
+            <button className="btn btn-secondary btn-sm" onClick={handleReset} disabled={saving}><RotateCcw size={12} /> Reset Defaults</button>
+            <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
+              {saving ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={12} />} Save Changes
+            </button>
           </>
         }
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, marginBottom: 20 }}>
+      {/* Offline banner or loading spinner */}
+      {!backendOnline ? (
+        <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', color: '#f59e0b', padding: '10px 16px', borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <WifiOff size={14} />
+          Backend Offline. Sliders running in isolated fallback mode.
+        </div>
+      ) : loadingThresholds ? (
+        <div style={{ background: 'rgba(29,140,255,0.1)', border: '1px solid rgba(29,140,255,0.2)', color: '#1d8cff', padding: '10px 16px', borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} />
+          Loading active threshold metrics from secure configuration...
+        </div>
+      ) : null}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 20 }}>
         <MetricCard label="Active Alert Rules" value="28" color="blue" icon={Bell} />
         <MetricCard label="Critical Threshold" value="80+" color="red" icon={AlertTriangle} subtitle="Score triggers" />
         <MetricCard label="Alert Channels" value="6" color="green" icon={Globe} />
@@ -116,10 +202,10 @@ export default function ThresholdsAlerts() {
           {[
             { label: 'Geopolitical Risk Threshold', key: 'geoPolitical', max: 100, unit: '' },
             { label: 'Maritime Risk Threshold', key: 'maritime', max: 100, unit: '' },
-            { label: 'Crude Price Spike Threshold', key: 'crudePct', max: 50, unit: '%' },
+            { label: 'Crude Price Spike Threshold (INR/bbl)', key: 'crudePct', max: 100, unit: ' INR' },
             { label: 'Insurance Premium Spike', key: 'insurance', max: 100, unit: '%' },
-            { label: 'Supply Gap Threshold (days)', key: 'supplyGap', max: 30, unit: ' days' },
-            { label: 'SPR Coverage Threshold (days)', key: 'sprDays', max: 30, unit: ' days' },
+            { label: 'Supply Gap Threshold (days)', key: 'supplyGap', max: 50, unit: ' days' },
+            { label: 'SPR Coverage Threshold (days)', key: 'sprDays', max: 50, unit: ' days' },
           ].map(t => (
             <div key={t.key} style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -253,6 +339,9 @@ export default function ThresholdsAlerts() {
           ))}
         </div>
       </GlassCard>
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
     </DashboardLayout>
   );
 }

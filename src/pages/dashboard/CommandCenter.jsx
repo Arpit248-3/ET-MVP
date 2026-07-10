@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertTriangle, Zap, Activity, TrendingUp, Shield, CheckCircle, ArrowRight, Radio, Bot, Droplets } from 'lucide-react';
+import { AlertTriangle, Zap, Activity, TrendingUp, Shield, CheckCircle, ArrowRight, Radio, Bot, Droplets, Loader, RefreshCw } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, AreaChart, Area } from 'recharts';
 import DashboardLayout from '../../components/layout/DashboardLayout.jsx';
 import GlassCard from '../../components/ui/GlassCard.jsx';
@@ -10,6 +10,9 @@ import RiskGauge from '../../components/ui/RiskGauge.jsx';
 import IndiaMapSVG from '../../components/ui/MapPanel.jsx';
 import { kpiData, incidentFeed, timeSeriesData } from '../../data/mockData.js';
 import { useToast } from '../../components/ui/Toast.jsx';
+import { useScenario } from '../../context/ScenarioContext.jsx';
+import useApi from '../../hooks/useApi.js';
+import { fetchState, fetchEconomicImpact, recordDecision } from '../../services/api.js';
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
@@ -29,24 +32,76 @@ const incidentColorMap = {
   red: { bg: 'rgba(239,68,68,0.07)', border: 'rgba(239,68,68,0.18)' },
   amber: { bg: 'rgba(245,158,11,0.07)', border: 'rgba(245,158,11,0.18)' },
   blue: { bg: 'rgba(29,140,255,0.07)', border: 'rgba(29,140,255,0.18)' },
+  green: { bg: 'rgba(34,197,94,0.07)', border: 'rgba(34,197,94,0.18)' },
 };
 
 export default function CommandCenter() {
   const { addToast } = useToast();
+  const { systemState, activeScenario, backendOnline } = useScenario();
   const [mapFilter, setMapFilter] = useState('All');
-  const handleAction = (action) => addToast(`${action} initiated — AI processing...`, 'success');
+
+  // Live state from backend — falls back to mock data if offline
+  const liveKPIs = systemState?.kpi || null;
+  const liveIncidents = systemState?.incident_feed || null;
+  const liveTimeSeries = systemState?.time_series || null;
+  const liveRisk = systemState?.kpi?.risk_score ?? kpiData.riskScore;
+  const liveCrisisLevel = systemState?.kpi?.crisis_level ?? kpiData.crisisLevel;
+
+  // Economic impact for chart time series
+  const { data: economicData } = useApi(fetchEconomicImpact, {
+    fallback: null,
+    manual: !backendOnline,
+  });
+
+  const { execute: doDecision } = useApi(recordDecision, { manual: true });
+
+  const handleAction = async (action) => {
+    addToast(`${action} initiated — AI processing...`, 'success');
+    try {
+      await doDecision({
+        action_type: action,
+        approved_by: 'Commander Arjun Mehta',
+        details: { source: 'CommandCenter', scenario: activeScenario?.id },
+      });
+    } catch {
+      // Non-blocking — action already toasted
+    }
+  };
+
+  // Use live data if available, else fall back to mock
+  const displayIncidents = liveIncidents || incidentFeed;
+  const displayTimeSeries = (liveTimeSeries && liveTimeSeries.length > 0)
+    ? liveTimeSeries
+    : (economicData?.time_series || timeSeriesData);
+  const displayRisk = liveRisk;
+  const displayCrisisLevel = liveCrisisLevel;
+  const displaySPR = liveKPIs?.spr_coverage ?? kpiData.spr_coverage;
+  const displayActiveIncidents = liveKPIs?.active_incidents ?? kpiData.activeIncidents;
+  const displaySupplyGap = liveKPIs?.supply_gap ?? kpiData.supplyGap;
+  const displaySanctions = liveKPIs?.active_sanctions ?? kpiData.activeSanctions;
+
+  const crisisColor = displayRisk >= 80 ? '#ef4444' : displayRisk >= 60 ? '#f59e0b' : '#22c55e';
+  const aiRec = systemState?.ai_recommendation
+    || (activeScenario?.kpis?.ai_recommendation)
+    || 'Reroute 2 cargo via Cape of Good Hope. Initiate West Africa negotiations. Draw SPR 5M bbl.';
 
   return (
     <DashboardLayout>
       <PageHeader
         title="Command Center"
         subtitle="National Energy Resilience — Real-time Situational Awareness"
-        badge={{ label: 'ELEVATED', color: '#f59e0b' }}
+        badge={{ label: displayCrisisLevel, color: crisisColor }}
         actions={
           <>
-            <button className="btn btn-secondary btn-sm" onClick={() => addToast('Dashboard refreshed', 'info')}>
+            <button className="btn btn-secondary btn-sm" onClick={() => { addToast('Dashboard refreshed', 'info'); }}>
               <Radio size={12} /> Live Feed
             </button>
+            {backendOnline && (
+              <span style={{ fontSize: 10, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#22c55e' }} />
+                Live
+              </span>
+            )}
             <button className="btn btn-danger btn-sm" onClick={() => handleAction('Emergency Protocol')}>
               <AlertTriangle size={12} /> Emergency
             </button>
@@ -54,14 +109,14 @@ export default function CommandCenter() {
         }
       />
 
-      {/* KPI Row — 6 cards, even grid */}
+      {/* KPI Row — 6 cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14, marginBottom: 20 }}>
-        <MetricCard label="National Risk Score" value="74" unit="/100" color="amber" icon={AlertTriangle} delta={8} deltaLabel="vs yesterday" />
-        <MetricCard label="Crisis Level" value="ELEVATED" color="amber" icon={Activity} subtitle="Hormuz + OPEC" valueSm />
-        <MetricCard label="Active Incidents" value="3" color="red" icon={Zap} delta={2} deltaLabel="new today" />
-        <MetricCard label="Supply Gap" value="2.4M" unit="bbl/day" color="red" icon={TrendingUp} delta={-12} deltaLabel="vs capacity" />
-        <MetricCard label="SPR Coverage" value={kpiData.spr_coverage} unit="days" color="blue" icon={Shield} delta={-4} />
-        <MetricCard label="Active Sanctions" value="12" color="purple" icon={Droplets} subtitle="On 4 suppliers" />
+        <MetricCard label="National Risk Score" value={String(displayRisk)} unit="/100" color={displayRisk >= 80 ? 'red' : displayRisk >= 60 ? 'amber' : 'blue'} icon={AlertTriangle} delta={8} deltaLabel="vs yesterday" />
+        <MetricCard label="Crisis Level" value={displayCrisisLevel} color={displayRisk >= 80 ? 'red' : 'amber'} icon={Activity} subtitle={activeScenario?.name?.slice(0, 20) || 'Hormuz + OPEC'} valueSm />
+        <MetricCard label="Active Incidents" value={String(displayActiveIncidents)} color="red" icon={Zap} delta={2} deltaLabel="new today" />
+        <MetricCard label="Supply Gap" value={displaySupplyGap} unit="bbl/day" color="red" icon={TrendingUp} delta={-12} deltaLabel="vs capacity" />
+        <MetricCard label="SPR Coverage" value={String(displaySPR)} unit="days" color="blue" icon={Shield} delta={-4} />
+        <MetricCard label="Active Sanctions" value={String(displaySanctions)} color="purple" icon={Droplets} subtitle="On 4 suppliers" />
       </div>
 
       {/* Map + Right panel */}
@@ -96,13 +151,13 @@ export default function CommandCenter() {
 
         {/* Risk gauge + AI rec */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <GlassCard glow="amber" style={{ textAlign: 'center' }}>
+          <GlassCard glow={displayRisk >= 80 ? 'red' : 'amber'} style={{ textAlign: 'center' }}>
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
-              <RiskGauge value={74} size={130} label="Risk Score" />
+              <RiskGauge value={displayRisk} size={130} label="Risk Score" />
             </div>
-            <StatusBadge status="ELEVATED" />
+            <StatusBadge status={displayCrisisLevel} />
             <p style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 8 }}>
-              Hormuz tension · OPEC cut risk
+              {activeScenario?.description?.slice(0, 60) || 'Hormuz tension · OPEC cut risk'}
             </p>
           </GlassCard>
 
@@ -122,7 +177,7 @@ export default function CommandCenter() {
               <span style={{ fontSize: 12.5, fontWeight: 700, color: '#00e5ff' }}>AI Recommendation</span>
             </div>
             <p style={{ fontSize: 12.5, color: 'var(--text-main)', lineHeight: 1.65, marginBottom: 12 }}>
-              Reroute 2 cargo via <b style={{ color: '#60b4ff' }}>Cape of Good Hope</b>. Initiate West Africa negotiations. Draw SPR 5M bbl.
+              {aiRec}
             </p>
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="btn btn-primary btn-sm" onClick={() => handleAction('AI Recommendation')}>Approve</button>
@@ -136,16 +191,17 @@ export default function CommandCenter() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: 16, marginBottom: 16 }}>
         {/* Price chart */}
         <GlassCard style={{ padding: '16px 20px' }}>
-          {/* Header row with live price tickers */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
             <div>
               <h3 className="card-title">Oil Price Trend</h3>
-              <p className="card-subtitle" style={{ marginBottom: 0 }}>Live pricing · 7-month trend · $USD/bbl</p>
+              <p className="card-subtitle" style={{ marginBottom: 0 }}>
+                {backendOnline ? 'Live scenario data' : 'Historical baseline'} · 7-month trend · $USD/bbl
+              </p>
             </div>
             {/* Live price tickers */}
             <div style={{ display: 'flex', gap: 10 }}>
               {[
-                { label: 'Brent', price: '$92.4', change: '+1.8%', color: '#1d8cff', up: true },
+                { label: 'Brent', price: `$${(systemState?.brent_price ?? 92.4).toFixed(1)}`, change: '+1.8%', color: '#1d8cff', up: true },
                 { label: 'Indian Basket', price: '$89.1', change: '+1.4%', color: '#00e5ff', up: true },
                 { label: 'WTI', price: '$87.6', change: '+0.9%', color: '#8b5cf6', up: true },
               ].map(t => (
@@ -162,7 +218,7 @@ export default function CommandCenter() {
           </div>
 
           <ResponsiveContainer width="100%" height={160}>
-            <AreaChart data={timeSeriesData} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
+            <AreaChart data={displayTimeSeries} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
               <defs>
                 <linearGradient id="brentGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#1d8cff" stopOpacity={0.25} />
@@ -202,44 +258,7 @@ export default function CommandCenter() {
               </div>
             ))}
           </div>
-
-          {/* Trend Analysis Textual Summary */}
-          <div style={{
-            marginTop: 14,
-            paddingTop: 12,
-            borderTop: '1px dashed var(--border-soft)',
-            display: 'grid',
-            gridTemplateColumns: '1.4fr 1fr',
-            gap: 16
-          }}>
-            <div>
-              <div style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                Market Analysis Summary
-              </div>
-              <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
-                Brent shows a consistent upward trajectory from <b>$78/bbl in Jan</b> to <b>$92.4/bbl in Jul (+18.4%)</b>, driven by OPEC production cuts in Q1 and geopolitical supply chain bottlenecks. The Indian Basket tracks this closely, maintaining a <b>$3.3/bbl discount spread</b>.
-              </p>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>
-                Technical Indicators
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5 }}>
-                <span style={{ color: 'var(--text-muted)' }}>Volatility Index:</span>
-                <span style={{ fontWeight: 600, color: '#f87171' }}>24.2% (High)</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5 }}>
-                <span style={{ color: 'var(--text-muted)' }}>Support/Resistance:</span>
-                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>$85.0 / $95.5</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5 }}>
-                <span style={{ color: 'var(--text-muted)' }}>Procurement Signal:</span>
-                <span style={{ fontWeight: 600, color: '#4ade80' }}>Hedge-Buy (SPR)</span>
-              </div>
-            </div>
-          </div>
         </GlassCard>
-
 
         {/* Live incident feed */}
         <GlassCard>
@@ -247,23 +266,25 @@ export default function CommandCenter() {
             <h3 className="card-title">Live Incident Feed</h3>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <div className="status-dot live" />
-              <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 700 }}>LIVE</span>
+              <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 700 }}>
+                {backendOnline ? 'LIVE' : 'OFFLINE'}
+              </span>
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {incidentFeed.map(incident => {
+            {displayIncidents.map((incident, idx) => {
               const cols = incidentColorMap[incident.color] || incidentColorMap.blue;
               return (
-                <div key={incident.id} style={{
+                <div key={incident.id ?? idx} style={{
                   display: 'flex', gap: 10, padding: '10px 12px',
                   borderRadius: 9, background: cols.bg, border: `1px solid ${cols.border}`,
                 }}>
                   <div style={{ flexShrink: 0, paddingTop: 1 }}>
-                    <StatusBadge status={incident.type} size="sm" />
+                    <StatusBadge status={incident.type || incident.severity} size="sm" />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-main)', marginBottom: 2 }}>{incident.title}</p>
-                    <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>{incident.detail}</p>
+                    <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>{incident.detail || incident.description}</p>
                   </div>
                   <span style={{ fontSize: 10, color: 'var(--text-dim)', flexShrink: 0 }}>{incident.time}</span>
                 </div>

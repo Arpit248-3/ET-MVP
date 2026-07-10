@@ -1,15 +1,19 @@
-import React, { useState } from 'react';
-import { Shield, CheckCircle, AlertTriangle, X, FileText, Clock, Filter, BarChart2, LineChart as LineIcon, PieChart as PieIcon, Activity } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Shield, CheckCircle, AlertTriangle, X, FileText, Clock, Filter, BarChart2, LineChart as LineIcon, PieChart as PieIcon, Activity, Loader, WifiOff } from 'lucide-react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell,
   LineChart, Line, AreaChart, Area,
-  PieChart, Pie, Sector, Legend,
+  PieChart, Pie, Legend,
   RadarChart, Radar, PolarGrid, PolarAngleAxis,
 } from 'recharts';
 import DashboardLayout from '../../components/layout/DashboardLayout.jsx';
 import GlassCard from '../../components/ui/GlassCard.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import StatusBadge from '../../components/ui/StatusBadge.jsx';
+import { useToast } from '../../components/ui/Toast.jsx';
+import { useScenario } from '../../context/ScenarioContext.jsx';
+import useApi from '../../hooks/useApi.js';
+import { checkCompliance } from '../../services/api.js';
 
 const regulations = [
   { id: 'IEA-001', name: 'IEA Emergency Reserves Protocol', authority: 'IEA', status: 'COMPLIANT', score: 98, dueDate: '2024-Q4', category: 'International' },
@@ -41,7 +45,6 @@ const pieData = [
   { name: 'Non-Compliant', value: 1, color: '#ef4444' },
 ];
 
-// Color per bar based on score
 const getBarColor = (score) => {
   if (score >= 90) return '#22c55e';
   if (score >= 80) return '#1d8cff';
@@ -53,24 +56,11 @@ const CustomBarTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
   const score = payload[0]?.value;
   return (
-    <div className="custom-tooltip">
+    <div className="custom-tooltip" style={{ background: 'rgba(8,18,35,0.95)', border: '1px solid rgba(90,130,255,0.3)', borderRadius: 8, padding: 8, fontSize: 12 }}>
       <p style={{ color: 'var(--text-muted)', fontSize: 10.5, marginBottom: 4 }}>{label}</p>
       <p style={{ color: getBarColor(score), fontWeight: 700, fontSize: 13 }}>Score: {score}%</p>
       {payload[1] && <p style={{ color: '#64748b', fontSize: 11 }}>Prev: {payload[1].value}%</p>}
     </div>
-  );
-};
-
-const CustomPieLabelLine = () => null;
-const CustomPieLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, name, percent }) => {
-  const RADIAN = Math.PI / 180;
-  const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-  const x = cx + radius * Math.cos(-midAngle * RADIAN);
-  const y = cy + radius * Math.sin(-midAngle * RADIAN);
-  return (
-    <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" style={{ fontSize: 11, fontWeight: 700, fontFamily: 'Inter' }}>
-      {`${(percent * 100).toFixed(0)}%`}
-    </text>
   );
 };
 
@@ -82,82 +72,112 @@ const chartTypes = [
 ];
 
 export default function ComplianceShield() {
+  const { addToast } = useToast();
+  const { activeScenario, backendOnline } = useScenario();
   const [filter, setFilter] = useState('All');
   const [chartType, setChartType] = useState('bar');
+  const [checking, setChecking] = useState(false);
+
+  // Supplier compliance checking state
+  const { data: compData, loading: compLoading, error: compError, execute: runComp } = useApi(checkCompliance, {
+    manual: true,
+    fallback: null,
+  });
+
   const categories = ['All', 'International', 'National', 'Safety', 'Environment', 'Quality', 'Cybersecurity', 'Financial'];
   const filtered = filter === 'All' ? regulations : regulations.filter(r => r.category === filter);
   const compliant = regulations.filter(r => r.status === 'COMPLIANT').length;
   const overallScore = Math.round(regulations.reduce((a, b) => a + b.score, 0) / regulations.length);
+
+  // Run compliance check on mount if backend is online
+  useEffect(() => {
+    if (backendOnline) {
+      runComp({ supplier_ids: ['sup-001', 'sup-002', 'sup-003', 'sup-004', 'sup-005', 'sup-006'] });
+    }
+  }, [backendOnline, runComp, activeScenario]);
+
+  const handleVerifySuppliers = async () => {
+    setChecking(true);
+    try {
+      await runComp({ supplier_ids: ['sup-001', 'sup-002', 'sup-003', 'sup-004', 'sup-005', 'sup-006'] });
+      addToast('Sanction & policy compliance check completed', 'success');
+    } catch (err) {
+      addToast('Failed to contact compliance verification engine', 'error');
+    } finally {
+      setChecking(false);
+    }
+  };
 
   const renderChart = () => {
     const tooltipStyle = { background: 'rgba(6,15,32,0.97)', border: '1px solid rgba(90,130,255,0.25)', borderRadius: 10, fontSize: 11 };
     switch (chartType) {
       case 'bar':
         return (
-          <BarChart data={trendData} margin={{ top: 5, right: 5, left: -18, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-            <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 10.5 }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fill: '#64748b', fontSize: 10.5 }} axisLine={false} tickLine={false} domain={[55, 100]} />
-            <Tooltip content={<CustomBarTooltip />} />
-            <Bar dataKey="score" radius={[5, 5, 0, 0]} name="Score">
-              {trendData.map((entry, i) => (
-                <Cell key={i} fill={getBarColor(entry.score)} opacity={0.85} />
-              ))}
-            </Bar>
-            <Bar dataKey="prev" radius={[4, 4, 0, 0]} name="Previous" fill="rgba(148,163,184,0.15)" />
-          </BarChart>
+          <ResponsiveContainer width="100%" height={170}>
+            <BarChart data={trendData} margin={{ top: 5, right: 5, left: -18, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 10.5 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#64748b', fontSize: 10.5 }} axisLine={false} tickLine={false} domain={[55, 100]} />
+              <Tooltip content={<CustomBarTooltip />} />
+              <Bar dataKey="score" radius={[5, 5, 0, 0]} name="Score">
+                {trendData.map((entry, i) => (
+                  <Cell key={i} fill={getBarColor(entry.score)} opacity={0.85} />
+                ))}
+              </Bar>
+              <Bar dataKey="prev" radius={[4, 4, 0, 0]} name="Previous" fill="rgba(148,163,184,0.15)" />
+            </BarChart>
+          </ResponsiveContainer>
         );
       case 'line':
         return (
-          <LineChart data={trendData} margin={{ top: 5, right: 5, left: -18, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-            <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 10.5 }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fill: '#64748b', fontSize: 10.5 }} axisLine={false} tickLine={false} domain={[55, 100]} />
-            <Tooltip contentStyle={tooltipStyle} />
-            <Line type="monotone" dataKey="score" stroke="#22c55e" strokeWidth={2.5} dot={{ fill: '#22c55e', r: 4, strokeWidth: 0 }} name="Score 2024" />
-            <Line type="monotone" dataKey="prev" stroke="#64748b" strokeWidth={1.5} strokeDasharray="4 3" dot={false} name="Prev Year" />
-          </LineChart>
+          <ResponsiveContainer width="100%" height={170}>
+            <LineChart data={trendData} margin={{ top: 5, right: 5, left: -18, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 10.5 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#64748b', fontSize: 10.5 }} axisLine={false} tickLine={false} domain={[55, 100]} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Line type="monotone" dataKey="score" stroke="#22c55e" strokeWidth={2.5} dot={{ fill: '#22c55e', r: 4, strokeWidth: 0 }} name="Score 2024" />
+              <Line type="monotone" dataKey="prev" stroke="#64748b" strokeWidth={1.5} strokeDasharray="4 3" dot={false} name="Prev Year" />
+            </LineChart>
+          </ResponsiveContainer>
         );
       case 'area':
         return (
-          <AreaChart data={trendData} margin={{ top: 5, right: 5, left: -18, bottom: 0 }}>
-            <defs>
-              <linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#22c55e" stopOpacity={0.02} />
-              </linearGradient>
-              <linearGradient id="prevGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#1d8cff" stopOpacity={0.2} />
-                <stop offset="95%" stopColor="#1d8cff" stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-            <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 10.5 }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fill: '#64748b', fontSize: 10.5 }} axisLine={false} tickLine={false} domain={[55, 100]} />
-            <Tooltip contentStyle={tooltipStyle} />
-            <Area type="monotone" dataKey="score" stroke="#22c55e" strokeWidth={2} fill="url(#scoreGrad)" name="Score 2024" />
-            <Area type="monotone" dataKey="prev" stroke="#1d8cff" strokeWidth={1.5} fill="url(#prevGrad)" name="Prev Year" />
-          </AreaChart>
+          <ResponsiveContainer width="100%" height={170}>
+            <AreaChart data={trendData} margin={{ top: 5, right: 5, left: -18, bottom: 0 }}>
+              <defs>
+                <linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#22c55e" stopOpacity={0.02} />
+                </linearGradient>
+                <linearGradient id="prevGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#1d8cff" stopOpacity={0.2} />
+                  <stop offset="95%" stopColor="#1d8cff" stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 10.5 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#64748b', fontSize: 10.5 }} axisLine={false} tickLine={false} domain={[55, 100]} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Area type="monotone" dataKey="score" stroke="#22c55e" strokeWidth={2} fill="url(#scoreGrad)" name="Score 2024" />
+              <Area type="monotone" dataKey="prev" stroke="#1d8cff" strokeWidth={1.5} fill="url(#prevGrad)" name="Prev Year" />
+            </AreaChart>
+          </ResponsiveContainer>
         );
       case 'pie':
         return (
-          <PieChart>
-            <Pie data={pieData} cx="50%" cy="50%" outerRadius={70} innerRadius={35}
-              dataKey="value" labelLine={<CustomPieLabelLine />} label={<CustomPieLabel />}
-              strokeWidth={0} paddingAngle={3}>
-              {pieData.map((entry, i) => (
-                <Cell key={i} fill={entry.color} />
-              ))}
-            </Pie>
-            <Legend
-              iconType="circle"
-              iconSize={8}
-              formatter={(value, entry) => (
-                <span style={{ color: '#94a3b8', fontSize: 11 }}>{value}: {entry.payload.value}</span>
-              )}
-            />
-            <Tooltip contentStyle={tooltipStyle} />
-          </PieChart>
+          <ResponsiveContainer width="100%" height={170}>
+            <PieChart>
+              <Pie data={pieData} cx="50%" cy="50%" outerRadius={60} innerRadius={30}
+                dataKey="value" strokeWidth={0} paddingAngle={3}>
+                {pieData.map((entry, i) => (
+                  <Cell key={i} fill={entry.color} />
+                ))}
+              </Pie>
+              <Legend iconType="circle" iconSize={8} />
+              <Tooltip contentStyle={tooltipStyle} />
+            </PieChart>
+          </ResponsiveContainer>
         );
       default:
         return null;
@@ -171,14 +191,41 @@ export default function ComplianceShield() {
         subtitle="Regulatory tracking and audit readiness across all energy mandates"
         badge={{ label: 'AUTO-MONITORING', color: '#22c55e' }}
         actions={
-          <button className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <FileText size={12} /> Export Report
-          </button>
+          <>
+            <button className="btn btn-secondary btn-sm" onClick={handleVerifySuppliers} disabled={checking || compLoading}>
+              {checking || compLoading ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Shield size={12} />}
+              {' '}Verify Suppliers Compliance
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={() => addToast('Compliance report generated', 'success')}>
+              <FileText size={12} /> Export Report
+            </button>
+          </>
         }
       />
 
+      {/* Loading overlay bar */}
+      {(compLoading || checking) && (
+        <div style={{ background: 'rgba(29,140,255,0.1)', border: '1px solid rgba(29,140,255,0.2)', color: '#1d8cff', padding: '10px 16px', borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} />
+          Verifying supplier credentials against global OFAC and legal sanctions...
+        </div>
+      )}
+
+      {/* Offline/Error Notification Banner */}
+      {!backendOnline ? (
+        <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', color: '#f59e0b', padding: '10px 16px', borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <WifiOff size={14} />
+          Backend Offline. Displaying cached compliance checklists and audit histories.
+        </div>
+      ) : compError ? (
+        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', padding: '10px 16px', borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <AlertTriangle size={14} />
+          Compliance check failed: {compError.message || 'Connection failed'}. Showing fallback statuses.
+        </div>
+      ) : null}
+
       {/* KPI row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 20 }}>
         {[
           { label: 'Overall Score', value: `${overallScore}%`, color: '#4ade80', icon: Shield, bg: 'rgba(34,197,94,0.1)' },
           { label: 'Compliant', value: `${compliant}/${regulations.length}`, color: '#60b4ff', icon: CheckCircle, bg: 'rgba(29,140,255,0.1)' },
@@ -249,9 +296,9 @@ export default function ComplianceShield() {
             </div>
           )}
 
-          <ResponsiveContainer width="100%" height={170}>
+          <div style={{ height: 170 }}>
             {renderChart()}
-          </ResponsiveContainer>
+          </div>
         </GlassCard>
 
         {/* Radar */}
@@ -263,12 +310,44 @@ export default function ComplianceShield() {
               <PolarGrid stroke="rgba(255,255,255,0.08)" />
               <PolarAngleAxis dataKey="area" tick={{ fill: '#64748b', fontSize: 9 }} />
               <Radar dataKey="score" stroke="#1d8cff" fill="#1d8cff" fillOpacity={0.15} strokeWidth={1.5} />
-              <Radar dataKey="score" stroke="#22c55e" fill="none" strokeWidth={0.5} strokeDasharray="3 3" />
               <Tooltip contentStyle={{ background: 'rgba(6,15,32,0.97)', border: '1px solid rgba(90,130,255,0.25)', borderRadius: 8, fontSize: 11 }} />
             </RadarChart>
           </ResponsiveContainer>
         </GlassCard>
       </div>
+
+      {/* Supplier Verification results - Live Backend Hook */}
+      {compData && (
+        <GlassCard style={{ marginBottom: 16, border: '1px solid rgba(0, 229, 255, 0.25)', background: 'rgba(0, 229, 255, 0.02)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: '#00e5ff' }}>Supplier Sanctions & Insurance Verification</h3>
+            <span className={`badge ${compData.all_clear ? 'badge-green' : 'badge-amber'}`}>
+              {compData.all_clear ? 'ALL CLEAR' : `${compData.flagged_count} FLAGGED`}
+            </span>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                {['Supplier', 'Sanctions', 'Insurance Check', 'Legal Status', 'Policy Alignment', 'Flags'].map(h => (
+                  <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {compData.results?.map(res => (
+                <tr key={res.supplier_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                  <td style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, color: 'var(--text-main)' }}>{res.supplier_name}</td>
+                  <td style={{ padding: '8px 12px' }}><StatusBadge status={res.sanctions} size="sm" /></td>
+                  <td style={{ padding: '8px 12px' }}><StatusBadge status={res.insurance} size="sm" /></td>
+                  <td style={{ padding: '8px 12px', fontSize: 11, color: 'var(--text-muted)' }}>{res.legal_status}</td>
+                  <td style={{ padding: '8px 12px' }}><StatusBadge status={res.policy_alignment} size="sm" /></td>
+                  <td style={{ padding: '8px 12px', fontSize: 10, color: '#f87171' }}>{res.flags?.join(', ') || 'None'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </GlassCard>
+      )}
 
       {/* Filter + Table */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -321,6 +400,10 @@ export default function ComplianceShield() {
           </tbody>
         </table>
       </GlassCard>
+
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
     </DashboardLayout>
   );
 }

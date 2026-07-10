@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { Command, CheckCircle, X, Clock, Users, FileText, AlertTriangle, ThumbsUp, ThumbsDown, ChevronRight } from 'lucide-react';
+import { Command, CheckCircle, X, Clock, Users, FileText, AlertTriangle, ThumbsUp, ThumbsDown, ChevronRight, Loader, WifiOff } from 'lucide-react';
 import DashboardLayout from '../../components/layout/DashboardLayout.jsx';
 import GlassCard from '../../components/ui/GlassCard.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
+import { recordDecision } from '../../services/api.js';
+import { useScenario } from '../../context/ScenarioContext.jsx';
+import { useToast } from '../../components/ui/Toast.jsx';
 
-const motions = [
+const mockMotions = [
   {
     id: 'MOT-2024-031',
     title: 'Authorize 3.2 MT SPR Release for Hormuz Disruption Response',
@@ -18,7 +21,7 @@ const motions = [
     aiRecommendation: 'APPROVE',
     aiConfidence: 91,
     members: [
-      { name: 'Arjun Mehta', role: 'Commander, NEMC', vote: 'FOR', avatar: 'AM' },
+      { name: 'Arjun Mehta', role: 'Commander, NEMC', vote: 'PENDING', avatar: 'AM' },
       { name: 'Priya Sharma', role: 'MoP Secretary', vote: 'FOR', avatar: 'PS' },
       { name: 'Rajiv Kumar', role: 'IOC Chairman', vote: 'FOR', avatar: 'RK' },
       { name: 'Anita Bose', role: 'Finance Ministry', vote: 'AGAINST', avatar: 'AB' },
@@ -42,21 +45,102 @@ const motions = [
   },
 ];
 
-const voteColor = { FOR: '#22c55e', AGAINST: '#ef4444', ABSTAIN: '#f59e0b', PENDING: 'var(--text-dim)' };
+const voteColor = { FOR: '#22c55e', AGAINST: '#ef4444', ABSTAIN: '#f59e0b', PENDING: '#94a3b8', APPROVE: '#22c55e', REJECT: '#ef4444', SIMULATE: '#38bdf8' };
 
 export default function ExecutiveDecisionBoard() {
-  const [selected, setSelected] = useState(motions[0]);
+  const [motions, setMotions] = useState(mockMotions);
+  const [selected, setSelected] = useState(mockMotions[0]);
+  const [votingLoader, setVotingLoader] = useState(false);
+  const [boardError, setBoardError] = useState(null);
+  const { backendOnline, activeScenario } = useScenario();
+  const { addToast: showToast } = useToast();
+
+  const handleVote = async (voteType) => {
+    if (!selected || selected.status !== 'VOTING') return;
+    
+    setVotingLoader(true);
+    setBoardError(null);
+    try {
+      if (backendOnline) {
+        await recordDecision({
+          action_type: `${voteType} - ${selected.title}`,
+          approved_by: 'Commander Arjun Mehta',
+          scenario_id: activeScenario?.id || 'hormuz_closure',
+          details: {
+            motion_id: selected.id,
+            decision: voteType,
+            motion_title: selected.title
+          }
+        });
+      }
+
+      // Update state local variables
+      const updatedMotions = motions.map(m => {
+        if (m.id === selected.id) {
+          const updatedVotes = { ...m.votes };
+          if (voteType === 'APPROVE') updatedVotes.for += 1;
+          else if (voteType === 'REJECT') updatedVotes.against += 1;
+          
+          // Modify Commander Mehta's vote in members
+          const updatedMembers = m.members.map(member => 
+            member.name === 'Arjun Mehta' ? { ...member, vote: voteType } : member
+          );
+
+          let newStatus = 'APPROVED';
+          if (voteType === 'REJECT') newStatus = 'REJECTED';
+          if (voteType === 'SIMULATE') newStatus = 'SIMULATION_REQUESTED';
+
+          return {
+            ...m,
+            votes: updatedVotes,
+            members: updatedMembers,
+            status: newStatus
+          };
+        }
+        return m;
+      });
+
+      setMotions(updatedMotions);
+      const updatedSelected = updatedMotions.find(m => m.id === selected.id);
+      setSelected(updatedSelected);
+      
+      showToast(`Decision recorded successfully: ${voteType} for ${selected.id}`, 'success');
+    } catch (err) {
+      console.error(err);
+      setBoardError(err);
+      showToast('Failed to post decision to the backend.', 'error');
+    } finally {
+      setVotingLoader(false);
+    }
+  };
+
+  const handleRaiseMotion = async () => {
+    showToast('New motions must be initiated via Red Team or Scenario Simulation workspace.', 'info');
+  };
 
   return (
     <DashboardLayout>
       <PageHeader title="Executive Decision Board" subtitle="High-stakes motions, AI-assisted voting, and quorum management"
         badge={{ label: 'LIVE SESSION', color: '#ef4444' }}
         actions={
-          <button className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+          <button onClick={handleRaiseMotion} className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
             <FileText size={13} />Raise New Motion
           </button>
         }
       />
+
+      {/* Offline/Error Notification Banner */}
+      {!backendOnline ? (
+        <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', color: '#f59e0b', padding: '10px 16px', borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <WifiOff size={14} />
+          Backend Offline. Displaying local motions catalog.
+        </div>
+      ) : boardError ? (
+        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', padding: '10px 16px', borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <AlertTriangle size={14} />
+          Failed to record decision: {boardError.message || 'Connection failed'}. Showing offline state.
+        </div>
+      ) : null}
 
       <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 16 }}>
         {/* Motion List */}
@@ -67,7 +151,7 @@ export default function ExecutiveDecisionBoard() {
               style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.03)', cursor: 'pointer', background: selected?.id === motion.id ? 'rgba(29,140,255,0.08)' : 'transparent', borderLeft: selected?.id === motion.id ? '3px solid #1d8cff' : '3px solid transparent', transition: 'all 0.15s' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#1d8cff' }}>{motion.id}</span>
-                <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, fontWeight: 700, background: motion.status === 'VOTING' ? '#f59e0b20' : '#22c55e20', color: motion.status === 'VOTING' ? '#f59e0b' : '#22c55e' }}>{motion.status}</span>
+                <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, fontWeight: 700, background: motion.status === 'VOTING' ? '#f59e0b20' : motion.status === 'REJECTED' ? '#ef444420' : '#22c55e20', color: motion.status === 'VOTING' ? '#f59e0b' : motion.status === 'REJECTED' ? '#ef4444' : '#22c55e' }}>{motion.status}</span>
               </div>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6, lineHeight: 1.4 }}>{motion.title}</div>
               <div style={{ display: 'flex', gap: 10, fontSize: 10, color: 'var(--text-dim)' }}>
@@ -95,8 +179,15 @@ export default function ExecutiveDecisionBoard() {
                 <div style={{ display: 'flex', flex: 'none', gap: 8 }}>
                   {selected.status === 'VOTING' && (
                     <>
-                      <button className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}><ThumbsUp size={13} />Vote FOR</button>
-                      <button className="btn btn-danger" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}><ThumbsDown size={13} />Vote AGAINST</button>
+                      {votingLoader ? (
+                        <div style={{ display: 'flex', alignItems: 'center', padding: '0 12px' }}><Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /></div>
+                      ) : (
+                        <>
+                          <button onClick={() => handleVote('APPROVE')} className="btn btn-success" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}><ThumbsUp size={13} />Approve</button>
+                          <button onClick={() => handleVote('REJECT')} className="btn btn-danger" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}><ThumbsDown size={13} />Reject</button>
+                          <button onClick={() => handleVote('SIMULATE')} className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}><FileText size={13} />Request Simulation</button>
+                        </>
+                      )}
                     </>
                   )}
                 </div>
@@ -151,7 +242,7 @@ export default function ExecutiveDecisionBoard() {
               </GlassCard>
             </div>
 
-            {/* Member Votes */}
+            {/* Board Member Votes */}
             {selected.members.length > 0 && (
               <GlassCard className="card" style={{ padding: '16px 20px' }}>
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -174,6 +265,9 @@ export default function ExecutiveDecisionBoard() {
           </div>
         )}
       </div>
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
     </DashboardLayout>
   );
 }

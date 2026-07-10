@@ -132,3 +132,46 @@ def demo_reset(db: Session = Depends(get_db)):
     )
 
     return {"success": True, "message": "Demo reset to step 0.", "current_step": 0}
+
+
+@router.post("/demo/step/{step_idx}")
+def demo_step(step_idx: int, db: Session = Depends(get_db)):
+    state = db.query(ScenarioState).filter(ScenarioState.id == 1).first()
+    if not state:
+        state = ScenarioState(id=1)
+        db.add(state)
+
+    scenario_id = state.active_scenario_id
+    if not scenario_id:
+        return {"success": False, "message": "No active scenario."}
+
+    scenario = get_scenario(scenario_id)
+    timeline = scenario.get("timeline", []) if scenario else []
+    total_steps = len(timeline)
+
+    # constrain step_idx
+    step_idx = max(0, min(step_idx, total_steps - 1))
+
+    state.demo_step = step_idx
+    db.commit()
+
+    event = _get_step_data(scenario_id, step_idx)
+    is_complete = step_idx >= total_steps - 1
+
+    create_audit_entry(
+        db=db,
+        user="Operator",
+        action=f"Demo Set to Step {step_idx}: {event.event[:60]}",
+        module="Demo Mode",
+        event_type="USER",
+        details={"step": step_idx, "event": event.event},
+    )
+
+    return {
+        "success": True,
+        "current_step": step_idx,
+        "total_steps": total_steps,
+        "event": event,
+        "is_complete": is_complete,
+    }
+

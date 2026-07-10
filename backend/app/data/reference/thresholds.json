@@ -1,6 +1,6 @@
 {
   "risk": {
-    "critical_threshold": 75,
+    "critical_threshold": 83,
     "elevated_threshold": 60,
     "moderate_threshold": 40,
     "normal_threshold": 0
@@ -21,12 +21,21 @@
   "economic": {
     "inflation_alert_pct": 1.5,
     "gdp_alert_pct": -0.3,
-    "fuel_price_alert_inr": 10.0,
+    "fuel_price_alert_inr": 10,
     "fiscal_alert_cr": 20000
   },
   "notifications": {
-    "critical_channels": ["email", "sms", "dashboard"],
-    "warning_channels": ["email", "dashboard"],
-    "info_channels": ["dashboard"]
+    "critical_channels": [
+      "email",
+      "sms",
+      "dashboard"
+    ],
+    "warning_channels": [
+      "email",
+      "dashboard"
+    ],
+    "info_channels": [
+      "dashboard"
+    ]
   }
 }

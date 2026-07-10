@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Pause, SkipForward, SkipBack, Sparkles } from 'lucide-react';
 import Sidebar from './Sidebar.jsx';
 import Topbar from './Topbar.jsx';
+import { triggerDemoStep } from '../../services/api.js';
 
 const DEMO_STEPS = [
   { time: '09:00', label: 'Normal Operations', route: '/command-center', module: 'Command Center', desc: 'Monitoring baseline energy routes across India refinery network.', risk: 24 },
@@ -51,6 +52,7 @@ export default function DashboardLayout({ children, crisisMode = false }) {
           const nextIdx = (stepIdx + 1) % DEMO_STEPS.length;
           localStorage.setItem('urja_demo_step', String(nextIdx));
           setStepIdx(nextIdx);
+          triggerDemoStep(nextIdx).catch(() => {});
           navigate(DEMO_STEPS[nextIdx].route);
           return 16;
         }
@@ -154,6 +156,7 @@ export default function DashboardLayout({ children, crisisMode = false }) {
     const prevIdx = (stepIdx - 1 + DEMO_STEPS.length) % DEMO_STEPS.length;
     localStorage.setItem('urja_demo_step', String(prevIdx));
     setStepIdx(prevIdx);
+    triggerDemoStep(prevIdx).catch(() => {});
     navigate(DEMO_STEPS[prevIdx].route);
   };
 
@@ -161,6 +164,7 @@ export default function DashboardLayout({ children, crisisMode = false }) {
     const nextIdx = (stepIdx + 1) % DEMO_STEPS.length;
     localStorage.setItem('urja_demo_step', String(nextIdx));
     setStepIdx(nextIdx);
+    triggerDemoStep(nextIdx).catch(() => {});
     navigate(DEMO_STEPS[nextIdx].route);
   };
 

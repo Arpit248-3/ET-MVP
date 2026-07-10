@@ -326,7 +326,7 @@ class BriefResponse(BaseModel):
 class DecisionRequest(BaseModel):
     action_type: str
     approved_by: str
-    scenario_id: str
+    scenario_id: Optional[str] = None
     details: Dict[str, Any] = {}
 
 

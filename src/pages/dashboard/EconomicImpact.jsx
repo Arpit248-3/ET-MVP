@@ -1,5 +1,5 @@
-import React from 'react';
-import { TrendingUp, TrendingDown, DollarSign, BarChart2 } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { TrendingUp, TrendingDown, DollarSign, BarChart2, Loader, AlertTriangle, WifiOff } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
 import DashboardLayout from '../../components/layout/DashboardLayout.jsx';
 import GlassCard from '../../components/ui/GlassCard.jsx';
@@ -7,27 +7,96 @@ import PageHeader from '../../components/ui/PageHeader.jsx';
 import MetricCard from '../../components/ui/MetricCard.jsx';
 import { economicImpact, stateImpactData, timeSeriesData, sectorImpactData } from '../../data/mockData.js';
 import { useToast } from '../../components/ui/Toast.jsx';
+import { useScenario } from '../../context/ScenarioContext.jsx';
+import useApi from '../../hooks/useApi.js';
+import { fetchEconomicImpact } from '../../services/api.js';
 
 export default function EconomicImpact() {
   const { addToast } = useToast();
+  const { activeScenario, backendOnline } = useScenario();
+
+  // Fetch live economic impact from backend
+  const { data: econData, loading: econLoading, error: econError, refetch } = useApi(fetchEconomicImpact, {
+    fallback: null,
+  });
+
+  // Display toast on error
+  useEffect(() => {
+    if (econError) {
+      addToast('Error fetching economic impact: using mock fallback data', 'error');
+    }
+  }, [econError, addToast]);
+
+  // Extract live metrics or fallback to default mock metrics
+  const metrics = econData?.metrics;
+  const displayInflation = metrics?.inflation || { value: 1.8, unit: '%', label: 'CPI / Inflation Impact' };
+  const displayGDP = metrics?.gdp || { value: -0.4, unit: '%', label: 'GDP Impact' };
+  const displayFuel = metrics?.fuelPrice || { value: 12.4, unit: '₹/L', label: 'Fuel Price Rise' };
+  const displayFiscal = metrics?.fiscal || { value: 28000, unit: 'Cr', label: 'Fiscal Cost' };
+  const displayCAD = metrics?.currentAccount || { value: -1.2, unit: '% GDP', label: 'CAD Widening' };
+  const displayTrade = metrics?.tradeDeficit || { value: 18500, unit: 'Cr', label: 'Trade Deficit' };
+
+  // Live series and lists
+  const displayTimeSeries = econData?.time_series || timeSeriesData;
+  const displaySectorImpact = econData?.sector_impact || sectorImpactData;
+  const displayStateImpact = econData?.state_impact
+    ? econData.state_impact.map(s => ({
+        state: s.state,
+        impact: s.impact,
+        gdpExposure: s.gdp_exposure || 'HIGH',
+      }))
+    : stateImpactData;
+
+  const handleRecalculate = async () => {
+    try {
+      await refetch();
+      addToast('Economic models successfully re-calculated', 'success');
+    } catch (err) {
+      addToast('Failed to recalculate economic model: using static data', 'error');
+    }
+  };
 
   return (
     <DashboardLayout>
       <PageHeader title="Economic Impact Dashboard" subtitle="Macro-economic projections · State-level analysis · Sector impact modeling"
         actions={<>
           <button className="btn btn-secondary btn-sm" onClick={() => addToast('Generating economic report...', 'info')}>Export Report</button>
-          <button className="btn btn-primary btn-sm" onClick={() => addToast('Model recalculated', 'success')}>Recalculate</button>
+          <button className="btn btn-primary btn-sm" onClick={handleRecalculate} disabled={econLoading}>
+            {econLoading && <Loader size={13} style={{ animation: 'spin 1s linear infinite', marginRight: 6 }} />}
+            Recalculate
+          </button>
         </>}
       />
 
+      {/* Loading overlay bar */}
+      {econLoading && (
+        <div style={{ background: 'rgba(29,140,255,0.1)', border: '1px solid rgba(29,140,255,0.2)', color: '#1d8cff', padding: '10px 16px', borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} />
+          Recalculating economic model projections...
+        </div>
+      )}
+
+      {/* Offline/Error Notification Banner */}
+      {!backendOnline ? (
+        <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', color: '#f59e0b', padding: '10px 16px', borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <WifiOff size={14} />
+          Backend Offline. Displaying simulated macro-economic baseline data.
+        </div>
+      ) : econError ? (
+        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', padding: '10px 16px', borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <AlertTriangle size={14} />
+          Error calculating economic impacts: {econError.message || 'Connection failed'}. Showing fallback projections.
+        </div>
+      ) : null}
+
       {/* KPI cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 20 }}>
-        <MetricCard label="CPI / Inflation Impact" value="+1.8" unit="%" color="red" icon={TrendingUp} delta={0.3} />
-        <MetricCard label="GDP Impact" value="-0.4" unit="%" color="red" icon={TrendingDown} delta={-0.1} />
-        <MetricCard label="Fuel Price Rise" value="+₹12.4" unit="/L" color="amber" icon={DollarSign} delta={4.2} />
-        <MetricCard label="Fiscal Cost" value="₹28,000" unit="Cr" color="amber" icon={BarChart2} delta={12} />
-        <MetricCard label="CAD Widening" value="-1.2" unit="% GDP" color="red" icon={TrendingDown} delta={-0.4} />
-        <MetricCard label="Trade Deficit" value="₹18,500" unit="Cr" color="amber" icon={TrendingUp} delta={8} />
+        <MetricCard label={displayInflation.label} value={`${displayInflation.value > 0 ? '+' : ''}${displayInflation.value}`} unit={displayInflation.unit} color="red" icon={TrendingUp} />
+        <MetricCard label={displayGDP.label} value={`${displayGDP.value > 0 ? '+' : ''}${displayGDP.value}`} unit={displayGDP.unit} color="red" icon={TrendingDown} />
+        <MetricCard label={displayFuel.label} value={`${displayFuel.value > 0 ? '+' : ''}${displayFuel.value.toString().startsWith('₹') ? '' : '₹'}${displayFuel.value}`} unit={displayFuel.unit} color="amber" icon={DollarSign} />
+        <MetricCard label={displayFiscal.label} value={`₹${displayFiscal.value.toLocaleString()}`} unit={displayFiscal.unit} color="amber" icon={BarChart2} />
+        <MetricCard label={displayCAD.label} value={`${displayCAD.value}`} unit={displayCAD.unit} color="red" icon={TrendingDown} />
+        <MetricCard label={displayTrade.label} value={`₹${displayTrade.value.toLocaleString()}`} unit={displayTrade.unit} color="amber" icon={TrendingUp} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
@@ -36,12 +105,12 @@ export default function EconomicImpact() {
           <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Oil Price Trend</h3>
           <p style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 14 }}>Monthly Brent Crude & Indian Basket ($USD/bbl)</p>
           <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={timeSeriesData}>
+            <LineChart data={displayTimeSeries}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(90,130,255,0.08)" />
               <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 11 }} />
-              <YAxis tick={{ fill: '#64748b', fontSize: 11 }} domain={[70, 100]} />
+              <YAxis tick={{ fill: '#64748b', fontSize: 11 }} domain={['auto', 'auto']} />
               <Tooltip contentStyle={{ background: 'rgba(8,18,35,0.95)', border: '1px solid rgba(90,130,255,0.3)', borderRadius: 8, fontSize: 12 }} />
-              <Line type="monotone" dataKey="brent" stroke="#ef4444" strokeWidth={2} dot={false} name="Brent" />
+              <Line type="monotone" dataKey="brent" stroke="#ef4444" strokeWidth={2.5} dot={false} name="Brent" />
               <Line type="monotone" dataKey="indianBasket" stroke="#1d8cff" strokeWidth={2} dot={false} name="Indian Basket" />
             </LineChart>
           </ResponsiveContainer>
@@ -52,13 +121,13 @@ export default function EconomicImpact() {
           <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Sector Impact Analysis</h3>
           <p style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 14 }}>Impact score by sector (0–100)</p>
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={sectorImpactData} layout="vertical">
+            <BarChart data={displaySectorImpact} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(90,130,255,0.08)" horizontal={false} />
               <XAxis type="number" tick={{ fill: '#64748b', fontSize: 11 }} domain={[0, 100]} />
               <YAxis dataKey="sector" type="category" tick={{ fill: '#94a3b8', fontSize: 11 }} width={70} />
               <Tooltip contentStyle={{ background: 'rgba(8,18,35,0.95)', border: '1px solid rgba(90,130,255,0.3)', borderRadius: 8, fontSize: 12 }} />
               <Bar dataKey="impact" radius={[0, 4, 4, 0]}>
-                {sectorImpactData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+                {displaySectorImpact.map((entry, i) => <Cell key={i} fill={entry.fill || 'var(--primary)'} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -70,7 +139,7 @@ export default function EconomicImpact() {
         <GlassCard>
           <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>State Impact Ranking</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {[...stateImpactData].sort((a, b) => b.impact - a.impact).map((state, i) => (
+            {[...displayStateImpact].sort((a, b) => b.impact - a.impact).map((state, i) => (
               <div key={state.state} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <span style={{ fontSize: 12, color: 'var(--text-dim)', width: 20, textAlign: 'right' }}>#{i + 1}</span>
                 <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-main)', width: 120 }}>{state.state}</span>
@@ -104,6 +173,10 @@ export default function EconomicImpact() {
           <button className="btn btn-primary btn-sm" style={{ width: '100%' }} onClick={() => addToast('Full economic analysis report generated', 'success')}>Generate Full Report</button>
         </GlassCard>
       </div>
+
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
     </DashboardLayout>
   );
 }

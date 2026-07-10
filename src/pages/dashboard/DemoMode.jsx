@@ -7,6 +7,8 @@ import GlassCard from '../../components/ui/GlassCard.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import StatusBadge from '../../components/ui/StatusBadge.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
+import { triggerDemoStep, resetDemo } from '../../services/api.js';
+import { useScenario } from '../../context/ScenarioContext.jsx';
 
 const STEPS = [
   { time: '09:00', label: 'Normal Operations', status: 'ACTIVE', risk: 24, route: '/command-center', ai: 'Monitoring baseline energy routes across India refinery network.', confidence: 96, module: 'Command Center', next: 'Continue monitoring Hormuz shipping lanes' },
@@ -89,6 +91,7 @@ export default function DemoMode() {
           }
           const nextStep = prev + 1;
           localStorage.setItem('urja_demo_step', String(nextStep));
+          triggerDemoStep(nextStep).catch(() => {});
           return nextStep;
         });
       }, 3500); // 3.5 seconds per step locally
@@ -103,6 +106,7 @@ export default function DemoMode() {
       // Start Live tour (redirects page by page with auto-clicks and auto-scrolling)
       localStorage.setItem('urja_demo_active', 'true');
       localStorage.setItem('urja_demo_step', '0');
+      triggerDemoStep(0).catch(() => {});
       addToast('Starting Live Tour Autopilot. First stop: Command Center...', 'success');
       setTimeout(() => {
         navigate(STEPS[0].route);
@@ -112,6 +116,7 @@ export default function DemoMode() {
       setLocalPlaying(true);
       setStepIdx(0);
       localStorage.setItem('urja_demo_step', '0');
+      triggerDemoStep(0).catch(() => {});
       addToast('Starting Sandbox Timeline Preview.', 'info');
     }
   };
@@ -131,12 +136,14 @@ export default function DemoMode() {
     localStorage.setItem('urja_demo_step', '0');
     setLocalPlaying(false);
     setStepIdx(0);
+    resetDemo().catch(() => {});
     addToast('Demo state reset to 09:00 baseline.', 'info');
   };
 
   const handleSelectStep = (index) => {
     setStepIdx(index);
     localStorage.setItem('urja_demo_step', String(index));
+    triggerDemoStep(index).catch(() => {});
     
     // In live mode, selection triggers direct navigation
     if (tourType === 'live' && localStorage.getItem('urja_demo_active') === 'true') {

@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
-import { Bell, AlertTriangle, CheckCircle, Info, X, Filter, Settings } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Bell, AlertTriangle, CheckCircle, Info, X, Filter, Settings, Loader, WifiOff } from 'lucide-react';
 import DashboardLayout from '../../components/layout/DashboardLayout.jsx';
 import GlassCard from '../../components/ui/GlassCard.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
+import useApi from '../../hooks/useApi.js';
+import { fetchNotifications } from '../../services/api.js';
+import { useScenario } from '../../context/ScenarioContext.jsx';
 
 const notifications = [
   { id: 1, type: 'CRITICAL', title: 'Hormuz Disruption Risk Elevated to 74%', body: 'AI Risk Engine has flagged an elevated probability of Persian Gulf supply disruption based on naval exercise intelligence and tanker route anomalies.', time: '2 min ago', read: false, category: 'Risk' },
@@ -23,11 +26,36 @@ const typeConfig = {
 };
 
 export default function Notifications() {
+  const { backendOnline } = useScenario();
+  const { data: liveNotifs, loading: notifsLoading, error: notifsError } = useApi(fetchNotifications, { fallback: null });
+
+  // Normalize live notifications to display format
+  const liveItems = liveNotifs?.notifications
+    ? liveNotifs.notifications.map((n, i) => ({
+        id: n.id || i,
+        type: n.type || 'INFO',
+        title: n.title,
+        body: n.detail || '',
+        time: n.time || 'Just now',
+        read: n.read ?? false,
+        category: n.type === 'CRITICAL' ? 'Risk' : 'Operations',
+      }))
+    : null;
+
   const [filter, setFilter] = useState('All');
   const [items, setItems] = useState(notifications);
+
+  // Sync state if liveItems updates
+  useEffect(() => {
+    if (liveItems) {
+      setItems(liveItems);
+    }
+  }, [liveItems]);
+
+  const displayItems = items;
   const categories = ['All', 'Risk', 'Operations', 'Finance', 'Procurement', 'Compliance', 'AI', 'Intelligence'];
-  const unread = items.filter(n => !n.read).length;
-  const filtered = filter === 'All' ? items : items.filter(n => n.category === filter);
+  const unread = displayItems.filter(n => !n.read).length;
+  const filtered = filter === 'All' ? displayItems : displayItems.filter(n => n.category === filter);
 
   const markRead = (id) => setItems(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
   const markAllRead = () => setItems(prev => prev.map(n => ({ ...n, read: true })));
@@ -44,8 +72,26 @@ export default function Notifications() {
         }
       />
 
+      {/* Offline/Error Notification Banner */}
+      {!backendOnline ? (
+        <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', color: '#f59e0b', padding: '10px 16px', borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <WifiOff size={14} />
+          Backend Offline. Displaying local alert center feed.
+        </div>
+      ) : notifsLoading ? (
+        <div style={{ background: 'rgba(29,140,255,0.1)', border: '1px solid rgba(29,140,255,0.2)', color: '#1d8cff', padding: '10px 16px', borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} />
+          Fetching live national energy incident alerts...
+        </div>
+      ) : notifsError ? (
+        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', padding: '10px 16px', borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <AlertTriangle size={14} />
+          Failed to fetch live notifications: {notifsError.message || 'Connection failed'}. Showing cached feed.
+        </div>
+      ) : null}
+
       {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 20 }}>
         {[
           { label: 'Unread', value: unread, color: '#ef4444' },
           { label: 'Critical', value: items.filter(n => n.type === 'CRITICAL').length, color: '#ef4444' },
@@ -74,35 +120,42 @@ export default function Notifications() {
 
       {/* Notification List */}
       <GlassCard className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        {filtered.map((notif, i) => {
-          const cfg = typeConfig[notif.type];
-          const Icon = cfg.icon;
-          return (
-            <div key={notif.id}
-              style={{ padding: '14px 20px', borderBottom: i < filtered.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none', background: notif.read ? 'transparent' : 'rgba(29,140,255,0.03)', display: 'flex', gap: 14, alignItems: 'flex-start', cursor: 'pointer', transition: 'background 0.15s' }}
-              onClick={() => markRead(notif.id)}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
-              onMouseLeave={e => e.currentTarget.style.background = notif.read ? 'transparent' : 'rgba(29,140,255,0.03)'}>
-              {!notif.read && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#1d8cff', flexShrink: 0, marginTop: 6 }} />}
-              {notif.read && <div style={{ width: 6, flexShrink: 0 }} />}
-              <div style={{ width: 34, height: 34, borderRadius: 10, background: cfg.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Icon size={16} color={cfg.color} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: cfg.bg, color: cfg.color, fontWeight: 700 }}>{notif.type}</span>
-                    <span style={{ fontSize: 10, color: 'var(--text-dim)', padding: '1px 6px', background: 'rgba(255,255,255,0.04)', borderRadius: 4 }}>{notif.category}</span>
-                  </div>
-                  <span style={{ fontSize: 10, color: 'var(--text-dim)', flexShrink: 0 }}>{notif.time}</span>
+        {filtered.length === 0 ? (
+          <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-dim)', fontSize: 13 }}>No alerts in this category.</div>
+        ) : (
+          filtered.map((notif, i) => {
+            const cfg = typeConfig[notif.type] || typeConfig.INFO;
+            const Icon = cfg.icon;
+            return (
+              <div key={notif.id}
+                style={{ padding: '14px 20px', borderBottom: i < filtered.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none', background: notif.read ? 'transparent' : 'rgba(29,140,255,0.03)', display: 'flex', gap: 14, alignItems: 'flex-start', cursor: 'pointer', transition: 'background 0.15s' }}
+                onClick={() => markRead(notif.id)}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
+                onMouseLeave={e => e.currentTarget.style.background = notif.read ? 'transparent' : 'rgba(29,140,255,0.03)'}>
+                {!notif.read && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#1d8cff', flexShrink: 0, marginTop: 6 }} />}
+                {notif.read && <div style={{ width: 6, flexShrink: 0 }} />}
+                <div style={{ width: 34, height: 34, borderRadius: 10, background: cfg.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Icon size={16} color={cfg.color} />
                 </div>
-                <div style={{ fontSize: 13, fontWeight: notif.read ? 500 : 700, color: 'var(--text-primary)', marginBottom: 4 }}>{notif.title}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{notif.body}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: cfg.bg, color: cfg.color, fontWeight: 700 }}>{notif.type}</span>
+                      <span style={{ fontSize: 10, color: 'var(--text-dim)', padding: '1px 6px', background: 'rgba(255,255,255,0.04)', borderRadius: 4 }}>{notif.category}</span>
+                    </div>
+                    <span style={{ fontSize: 10, color: 'var(--text-dim)', flexShrink: 0 }}>{notif.time}</span>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: notif.read ? 500 : 700, color: 'var(--text-primary)', marginBottom: 4 }}>{notif.title}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{notif.body}</div>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </GlassCard>
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
     </DashboardLayout>
   );
 }

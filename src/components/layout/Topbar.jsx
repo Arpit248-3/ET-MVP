@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Bell, HelpCircle, ChevronDown, AlertOctagon, X, Zap, LogOut, Home } from 'lucide-react';
 import { mockUser } from '../../data/mockData.js';
+import ScenarioSwitcher from '../ui/ScenarioSwitcher.jsx';
 
 export default function Topbar({ crisisMode = false }) {
   const navigate = useNavigate();
@@ -61,6 +62,9 @@ export default function Topbar({ crisisMode = false }) {
             <span style={{ fontSize: 11.5, color: '#f87171', fontWeight: 700, letterSpacing: '0.07em' }}>CRISIS MODE ACTIVE</span>
           </div>
         )}
+
+        {/* Scenario Switcher */}
+        <ScenarioSwitcher />
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
           {/* Critical Alert */}
